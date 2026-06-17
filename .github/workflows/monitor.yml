@@ -14,5 +14,5 @@ jobs:
       - run: pip install requests
       - name: Run monitor
         env:
-          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_TOPIC: yeohyega
         run: python monitor.py
