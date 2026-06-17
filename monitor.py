@@ -29,25 +29,35 @@ def fetch_latest_code():
     html = r.text
     print("threads status:", r.status_code, "| html length:", len(html))
 
-    # escape 처리된 슬래시/따옴표 정규화 후 매칭
     norm = html.replace('\\/', '/').replace('\\"', '"')
-    patterns = [
-        r'/@%s/post/([A-Za-z0-9_-]{5,})' % re.escape(USERNAME),
-        r'/post/([A-Za-z0-9_-]{5,})',
-        r'"code"\s*:\s*"([A-Za-z0-9_-]{5,})"',
-    ]
-    for i, pat in enumerate(patterns):
-        codes = re.findall(pat, norm)
+    # 신뢰 가능한 permalink 패턴만 사용 (로케일 코드 제외)
+    for i, pat in enumerate([
+        r'/@%s/post/([A-Za-z0-9_-]{6,})' % re.escape(USERNAME),
+        r'/post/([A-Za-z0-9_-]{6,})',
+    ]):
+        codes = [c for c in re.findall(pat, norm)
+                 if not re.fullmatch(r'[a-z]{2}_[A-Z]{2}', c)]
         if codes:
             print(f"matched pattern #{i} -> first 5: {codes[:5]}")
             return codes[0]
 
-    # 아무것도 안 잡히면 진단 정보 출력
-    print("no code matched. diagnostics (raw counts):")
-    for token in ['/post/', '\\/post\\/', '"code":"', '\\"code\\"',
-                  'login', 'Log in', 'ScheduledServerJS', '__bbox',
-                  'thread_items', 'profile']:
+    # 진단 정보
+    print("no permalink matched. diagnostics (raw counts):")
+    for token in ['/post/', '\\/post\\/', 'thread_items', '__bbox', '"pk"',
+                  '"code"', 'caption', 'text_post_app_info',
+                  'RelayPrefetchedStreamCache', 'login', 'Log in']:
         print(f"   {token!r}: {html.count(token)}")
+
+    m = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]*)"', html)
+    if m:
+        print("og:description:", m.group(1)[:300])
+
+    for key in ['text_post_app_info', '"pk"', 'thread_items']:
+        idx = norm.find(key)
+        if idx != -1:
+            print(f"--- snippet around {key} ---")
+            print(norm[max(0, idx-60):idx+240])
+            break
     return None
 
 def load_state():
@@ -63,13 +73,13 @@ def save_state(state):
 def main():
     latest = fetch_latest_code()
     if not latest:
-        print("게시글을 못 읽었습니다. 위 진단 정보를 확인하세요. 에러 없이 종료.")
+        print("게시글 permalink을 못 찾음 (JS 렌더링 추정). 위 진단 확인. 에러 없이 종료.")
         return
     post_url = f"{PROFILE_URL}/post/{latest}"
     state = load_state()
     last = state.get("last_code")
-    if last is None:
-        print("첫 실행: 기준점 설정 ->", latest)
+    if last is None or last == "ko_KR":   # 이전 잘못된 기준점 리셋
+        print("기준점 설정 ->", latest)
         save_state({"last_code": latest})
         send_ntfy("감시 시작 ✅", f"@{USERNAME} 새 글 감시를 시작합니다.", post_url)
     elif latest != last:
