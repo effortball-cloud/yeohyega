@@ -28,11 +28,27 @@ def fetch_latest_code():
     r = requests.get(PROFILE_URL, headers=HEADERS, timeout=30)
     html = r.text
     print("threads status:", r.status_code, "| html length:", len(html))
-    codes = re.findall(r'/post/([A-Za-z0-9_-]{6,})', html)
-    if not codes:
-        codes = re.findall(r'"code":"([A-Za-z0-9_-]{6,})"', html)
-    print("found codes (first 5):", codes[:5])
-    return codes[0] if codes else None
+
+    # escape 처리된 슬래시/따옴표 정규화 후 매칭
+    norm = html.replace('\\/', '/').replace('\\"', '"')
+    patterns = [
+        r'/@%s/post/([A-Za-z0-9_-]{5,})' % re.escape(USERNAME),
+        r'/post/([A-Za-z0-9_-]{5,})',
+        r'"code"\s*:\s*"([A-Za-z0-9_-]{5,})"',
+    ]
+    for i, pat in enumerate(patterns):
+        codes = re.findall(pat, norm)
+        if codes:
+            print(f"matched pattern #{i} -> first 5: {codes[:5]}")
+            return codes[0]
+
+    # 아무것도 안 잡히면 진단 정보 출력
+    print("no code matched. diagnostics (raw counts):")
+    for token in ['/post/', '\\/post\\/', '"code":"', '\\"code\\"',
+                  'login', 'Log in', 'ScheduledServerJS', '__bbox',
+                  'thread_items', 'profile']:
+        print(f"   {token!r}: {html.count(token)}")
+    return None
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -47,7 +63,7 @@ def save_state(state):
 def main():
     latest = fetch_latest_code()
     if not latest:
-        print("게시글을 못 읽었습니다 (로그인 벽 또는 구조 변경 가능). 에러 없이 종료.")
+        print("게시글을 못 읽었습니다. 위 진단 정보를 확인하세요. 에러 없이 종료.")
         return
     post_url = f"{PROFILE_URL}/post/{latest}"
     state = load_state()
